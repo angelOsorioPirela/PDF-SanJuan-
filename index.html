@@ -1,0 +1,338 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Visor Avanzado de PDF</title>
+    <style>
+        /* Estilos para el visor */
+        body {
+            font-family: Arial, sans-serif;
+            margin: 0;
+            padding: 0;
+            position: relative; /* Necesario para el posicionamiento absoluto del footer */
+            padding-bottom: 30px; /* Espacio para el footer fijo */
+        }
+
+        .container {
+            text-align: center;
+            background-image: url('https://picsum.photos/1920/1080');
+            background-size: cover;
+            background-position: center;
+            height: 100vh;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            color: white;
+        }
+
+        .container-inner {
+            background-color: rgba(0, 0, 0, 0.5);
+            padding: 20px;
+            border-radius: 10px;
+            box-shadow: 0 10px 20px rgba(0, 0, 0, 0.2);
+        }
+
+        .container-inner h1 {
+            font-size: 36px;
+            margin-bottom: 20px;
+        }
+
+        .container-inner button {
+            padding: 10px 20px;
+            border: none;
+            border-radius: 5px;
+            cursor: pointer;
+            background-color: #2600ff7e;
+            color: white;
+            font-size: 18px;
+        }
+
+        .container-inner button:hover {
+            background-color: #3b00ff;
+        }
+
+        /* Estilos para el visor de PDF */
+        #viewer {
+            display: flex;
+            height: 100vh;
+        }
+
+        .sidebar {
+            width: 200px;
+            background-color: rgba(30, 41, 59, 0.9);
+            padding: 20px;
+            display: flex;
+            flex-direction: column;
+            align-items: flex-start;
+            gap: 10px;
+        }
+
+        .sidebar button, .sidebar label, .sidebar input {
+            padding: 10px;
+            border: none;
+            border-radius: 5px;
+            cursor: pointer;
+            width: 100%;
+            text-align: left;
+        }
+
+        .sidebar button {
+            background-color: #2600ff7e;
+            color: white;
+        }
+
+        .sidebar label {
+            background-color: #007bff;
+            color: white;
+        }
+
+        .sidebar input[type="number"] {
+            width: 80px;
+            text-align: center;
+        }
+
+        .pdf-container {
+            flex-grow: 1;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            overflow-y: auto;
+            background-color: rgba(255, 255, 255, 0.95);
+            margin: 20px;
+            border-radius: 10px;
+            box-shadow: 0 10px 20px rgba(0, 0, 0, 0.2);
+            position: relative; /* Para posicionar el texto de la firma */
+            height: 90vh;
+        }
+
+        .pdf-container::-webkit-scrollbar {
+            width: 10px;
+            height: 10px;
+            background-color: #aaa;
+        }
+
+        .pdf-container::-webkit-scrollbar-thumb {
+            background-color: #666;
+            border-radius: 10px;
+        }
+
+        canvas {
+            max-width: 100%;
+            height: auto;
+            position: relative;
+        }
+
+        .canvas-prev {
+            transform: translateX(-100%);
+        }
+
+        .canvas-next {
+            transform: translateX(100%);
+        }
+
+        .page-info {
+            text-align: center;
+            margin-top: 10px;
+        }
+
+        .loading {
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            font-size: 24px;
+            font-weight: bold;
+        }
+
+        .error {
+            color: red;
+            font-size: 18px;
+            font-weight: bold;
+            text-align: center;
+        }
+
+        .firma {
+            position: absolute;
+            bottom: 10px;
+            right: 10px;
+            font-size: 0.8em;
+            color: #777;
+        }
+    </style>
+</head>
+<body>
+
+    <div class="container" id="container">
+        <div class="container-inner">
+            <h1>Visor Avanzado de PDF</h1>
+            <button onclick="showViewer()">Entrar</button>
+        </div>
+    </div>
+
+    <div id="viewer" style="display: none;">
+        <div class="sidebar">
+            <label for="file-input">Seleccionar PDF</label>
+            <input type="file" id="file-input" accept="application/pdf">
+            <button id="prev-page" disabled>Anterior</button>
+            <button id="next-page" disabled>Siguiente</button>
+            <button id="zoom-out">Zoom -</button>
+            <button id="zoom-in">Zoom +</button>
+            <input type="number" id="zoom-level" value="1.0" step="0.1" min="0.5" max="2.0">
+            <div class="page-info" id="page-info">Página 1 de 1</div>
+            <button id="rotate-left">Rotar Izquierda</button>
+            <button id="rotate-right">Rotar Derecha</button>
+            <button id="full-screen">Pantalla Completa</button>
+        </div>
+
+        <div class="pdf-container" id="pdf-container">
+            <div class="loading" id="loading">Cargando...</div>
+            <div class="error" id="error"></div>
+            <div class="firma">
+                Autores: Angel Osorio, Oscar Uribe
+            </div>
+        </div>
+    </div>
+
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/2.10.377/pdf.min.js"></script>
+
+    <script>
+        function showViewer() {
+            document.getElementById('container').style.display = 'none';
+            document.getElementById('viewer').style.display = 'flex';
+        }
+
+        // Código JavaScript para el visor de PDF
+        let pdfDoc = null;
+        let currentPage = 1;
+        let totalPages = 0;
+        let zoomLevel = 1.0;
+        let rotation = 0;
+        const pdfContainer = document.querySelector('.pdf-container');
+        const loadingElement = document.getElementById('loading');
+        const errorElement = document.getElementById('error');
+
+        function renderPage(pageNum, direction = 0) {
+            loadingElement.style.display = 'block';
+            errorElement.style.display = 'none';
+            if (pdfDoc) {
+                pdfDoc.getPage(pageNum).then(page => {
+                    const viewport = page.getViewport({ scale: zoomLevel, rotation: rotation * 90 });
+                    const scale = pdfContainer.clientWidth / viewport.width;
+                    const adjustedViewport = page.getViewport({ scale: scale, rotation: rotation * 90 });
+                    const canvas = document.createElement('canvas');
+                    canvas.width = adjustedViewport.width;
+                    canvas.height = adjustedViewport.height;
+                    const ctx = canvas.getContext('2d');
+                    const renderContext = {
+                        canvasContext: ctx,
+                        viewport: adjustedViewport
+                    };
+                    page.render(renderContext).promise.then(() => {
+                        const contentContainer = document.createElement('div');
+                        contentContainer.style.width = `${adjustedViewport.width}px`;
+                        contentContainer.style.height = `${adjustedViewport.height}px`;
+                        contentContainer.appendChild(canvas);
+                        pdfContainer.innerHTML = '';
+                        pdfContainer.appendChild(contentContainer);
+                        // Añadimos de nuevo la firma después de cada renderizado
+                        const firmaDiv = document.createElement('div');
+                        firmaDiv.classList.add('firma');
+                        firmaDiv.textContent = 'Autores: Angel Osorio, Oscar Uribe';
+                        pdfContainer.appendChild(firmaDiv);
+
+                        loadingElement.style.display = 'none';
+                        document.getElementById('page-info').textContent = `Página ${pageNum} de ${totalPages}`;
+                        document.getElementById('prev-page').disabled = (pageNum === 1);
+                        document.getElementById('next-page').disabled = (pageNum === totalPages);
+                    }).catch(error => {
+                        loadingElement.style.display = 'none';
+                        errorElement.style.display = 'block';
+                        errorElement.textContent = 'Error al renderizar la página';
+                    });
+                }).catch(error => {
+                    loadingElement.style.display = 'none';
+                    errorElement.style.display = 'block';
+                    errorElement.textContent = 'Error al cargar la página';
+                });
+            }
+        }
+
+        function ajustarZoom(delta) {
+            const nuevoZoom = zoomLevel + delta;
+            if (nuevoZoom >= 0.5 && nuevoZoom <= 2.0) {
+                zoomLevel = nuevoZoom;
+                renderPage(currentPage);
+                document.getElementById('zoom-level').value = zoomLevel.toFixed(1);
+            }
+        }
+
+        document.getElementById('file-input').addEventListener('change', event => {
+            const file = event.target.files[0];
+            if (!file || file.type !== "application/pdf") {
+                errorElement.style.display = 'block';
+                errorElement.textContent = 'Selecciona un PDF válido';
+                return;
+            }
+
+            const fileReader = new FileReader();
+            fileReader.onload = e => {
+                try {
+                    const pdfData = e.target.result;
+                    pdfjsLib.getDocument(new Uint8Array(pdfData)).promise.then(pdf => {
+                        pdfDoc = pdf;
+                        totalPages = pdf.numPages;
+                        currentPage = 1;
+                        renderPage(currentPage);
+                    }).catch(error => {
+                        errorElement.style.display = 'block';
+                        errorElement.textContent = 'Error al cargar el PDF';
+                    });
+                } catch (error) {
+                    errorElement.style.display = 'block';
+                    errorElement.textContent = 'Error al cargar el PDF';
+                }
+            };
+            fileReader.readAsArrayBuffer(file);
+        });
+
+        document.getElementById('prev-page').addEventListener('click', () => {
+            if (currentPage > 1) {
+                renderPage(--currentPage, -1);
+            }
+        });
+
+        document.getElementById('next-page').addEventListener('click', () => {
+            if (currentPage < totalPages) {
+                renderPage(++currentPage, 1);
+            }
+        });
+
+        document.getElementById('zoom-in').addEventListener('click', () => ajustarZoom(0.1));
+        document.getElementById('zoom-out').addEventListener('click', () => ajustarZoom(-0.1));
+
+        document.getElementById('zoom-level').addEventListener('change', function() {
+            const nuevoZoom = parseFloat(this.value);
+            if (nuevoZoom >= 0.5 && nuevoZoom <= 2.0) {
+                zoomLevel = nuevoZoom;
+                renderPage(currentPage);
+            }
+        });
+
+        document.getElementById('rotate-left').addEventListener('click', () => {
+            rotation -= 1;
+            renderPage(currentPage);
+        });
+
+        document.getElementById('rotate-right').addEventListener('click', () => {
+            rotation += 1;
+            renderPage(currentPage);
+        });
+
+        document.getElementById('full-screen').addEventListener('click', () => {
+            pdfContainer.requestFullscreen();
+        });
+    </script>
+</body>
+</html>
+  
